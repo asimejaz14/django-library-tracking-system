@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from .models import Author, Book, Member, Loan
@@ -12,7 +14,9 @@ class AuthorViewSet(viewsets.ModelViewSet):
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+
+    # for optimized access of author
+    queryset = Book.objects.select_related('author').all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -52,6 +56,31 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    # @action(methods=['get'])
+    # def top_active(self, request):
+        # Member.objects.
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.select_related('book', 'member', 'member__user').all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        try:
+            loan_obj = Loan.objects.get(pk=pk)
+        except Loan.DoesNotExist:
+            return Response({'error': 'Active loan does not exist.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if loan_obj.due_date < timezone.now().date():
+            return Response({'error': 'Loan is already overdue.'}, status=status.HTTP_400_BAD_REQUEST)
+        extended_due_date = request.data.get('additional_days')
+        if extended_due_date < 1:
+            return Response({'error': 'Additional request days must be positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
+        loan_obj.due_date = loan_obj.due_date + timedelta(days=extended_due_date)
+        loan_obj.save()
+
+        result = {
+            'status': 'Loan extended successfully.',
+            'data': loan_obj
+        }
+        return Response(result, status=status.HTTP_200_OK)
